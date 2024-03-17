@@ -1,0 +1,14 @@
+{
+  "go.coverOnSave": true,
+  "go.coverageDecorator": {
+    "type": "gutter",
+    "coveredHighlightColor": "rgba(64,128,128,0.2)",
+    "uncoveredHighlightColor": "rgba(128,64,64,0.2)",
+    "coveredGutterStyle": "blockgreen",
+    "uncoveredGutterStyle": "blockred"
+  },
+  "go.coverOnSingleTest": true,
+  "gopls": {
+    "ui.semanticTokens": true
+  }
+}
