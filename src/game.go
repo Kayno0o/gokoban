@@ -159,7 +159,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 			if char == '@' {
 				drawRect(rectImage, color.RGBA{255, 255, 0, 255})
 			} else if char == '#' {
-				drawRect(rectImage, color.RGBA{255, 255, 100, 255})
+				drawRect(rectImage, color.RGBA{255, 255, 255, 255})
 			} else if char == 'X' {
 				drawRect(rectImage, color.RGBA{0, 150, 0, 255})
 			} else if char == 'O' {
