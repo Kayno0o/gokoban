@@ -4,26 +4,31 @@ import (
 	"bufio"
 	"bytes"
 	"embed"
+	"image"
+	"image/color"
+	"image/draw"
 	"math"
 	"os"
-	"strconv"
+	"strings"
 	"time"
 
-	"github.com/gdamore/tcell"
+	"github.com/hajimehoshi/ebiten/v2"
+	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 )
 
-var LevelsFs embed.FS
-
 type Game struct {
-	Screen              tcell.Screen
-	currentLevel        Level
-	levels              []Level
-	State               string // play | end
-	MaxWidth, MaxHeight int
+	currentLevel               Level
+	levels                     []Level
+	State                      string // play | end | next
+	MaxWidth, MaxHeight, Scale int
 }
 
-func (g *Game) Init() error {
-	file, err := LevelsFs.ReadFile("assets/levels.txt")
+func (g *Game) Layout(outsideWidth, outsideHeight int) (screenWidth, screenHeight int) {
+	return g.MaxWidth * g.Scale, g.MaxHeight * g.Scale
+}
+
+func (g *Game) Init(assets embed.FS) error {
+	file, err := assets.ReadFile("assets/levels.txt")
 	if err != nil {
 		return err
 	}
@@ -66,7 +71,6 @@ func (g *Game) Init() error {
 	}
 
 	g.currentLevel = g.levels[0]
-	g.Draw()
 
 	return nil
 }
@@ -84,74 +88,96 @@ func (g *Game) NextLevel() {
 
 func (g *Game) ResetLevel() {
 	g.currentLevel = g.levels[g.currentLevel.Index]
-	g.Draw()
 }
 
 func (g *Game) MovePlayer(dx, dy int) {
 	isWin := g.currentLevel.MovePlayer(dx, dy)
-	g.Draw()
 	if isWin {
-		time.Sleep(500 * time.Millisecond)
-
-		if g.HasNexLevel() {
-			g.NextLevel()
-			g.Draw()
+		if g.HasNexLevel() && g.State != "next" {
+			g.State = "next"
+			setTimeout(500*time.Millisecond, func() {
+				g.NextLevel()
+				g.State = ""
+			})
 			return
 		}
 
-		g.End()
+		g.State = "win"
 	}
 }
 
-func (g *Game) Draw() {
-	g.Screen.Clear()
+func (g *Game) Update() error {
+	if repeatingKeyPressed(ebiten.KeyEscape) || repeatingKeyPressed(ebiten.KeyQ) {
+		os.Exit(0)
+		return nil
+	}
+
+	if repeatingKeyPressed(ebiten.KeyR) {
+		g.ResetLevel()
+		return nil
+	}
+
+	if repeatingKeyPressed(ebiten.KeyArrowUp) {
+		g.MovePlayer(0, -1)
+		return nil
+	}
+
+	if repeatingKeyPressed(ebiten.KeyArrowDown) {
+		g.MovePlayer(0, 1)
+		return nil
+	}
+
+	if repeatingKeyPressed(ebiten.KeyArrowLeft) {
+		g.MovePlayer(-1, 0)
+		return nil
+	}
+
+	if repeatingKeyPressed(ebiten.KeyArrowRight) {
+		g.MovePlayer(1, 0)
+		return nil
+	}
+
+	return nil
+}
+
+func drawRect(img *image.RGBA, clr color.Color) {
+	// Draw the rectangle onto the image
+	draw.Draw(img, img.Bounds(), &image.Uniform{clr}, image.Point{}, draw.Src)
+}
+
+func (g *Game) Draw(screen *ebiten.Image) {
+	screen.Fill(color.RGBA{0, 0, 0, 255})
 
 	level := g.currentLevel.ToString()
-	startX := (g.MaxWidth - len(level[0])) / 2
-	startY := (g.MaxHeight - len(level)) / 2
-	g.DrawLines(Position{X: startX, Y: startY}, level)
+	startX := float64(((g.MaxWidth - len(level[0])) * g.Scale) / 2)
+	startY := float64(((g.MaxHeight - len(level)) * g.Scale) / 2)
 
-	g.DrawLines(Position{g.MaxWidth + 3, 0}, []string{
-		"Level " + strconv.Itoa(g.currentLevel.Index+1) + " / " + strconv.Itoa(len(g.levels)),
-		"Press R to restart",
-		"",
-		"@ - Player",
-		"# - Wall",
-		"O - Box",
-		"X - Box on target",
-		". - Target",
-	})
+	for y, row := range level {
+		for x, char := range row {
+			rect := image.Rect(0, 0, g.Scale, g.Scale)
+			rectImage := image.NewRGBA(rect)
+			if char == '@' {
+				drawRect(rectImage, color.RGBA{255, 255, 0, 255})
+			} else if char == '#' {
+				drawRect(rectImage, color.RGBA{255, 255, 100, 255})
+			} else if char == 'X' {
+				drawRect(rectImage, color.RGBA{0, 150, 0, 255})
+			} else if char == 'O' {
+				drawRect(rectImage, color.RGBA{0, 0, 150, 255})
+			} else if char == '.' {
+				drawRect(rectImage, color.RGBA{252, 132, 3, 255})
+			} else if char == ' ' {
+				drawRect(rectImage, color.RGBA{0, 0, 0, 255})
+			}
+			options := &ebiten.DrawImageOptions{}
+			options.GeoM.Translate(startX+float64(x*g.Scale), startY+float64(y*g.Scale))
 
-	g.Screen.Show()
-}
-
-func (g *Game) DrawLines(pos Position, lines []string) {
-	for y, line := range lines {
-		for x, ch := range line {
-			g.Screen.SetContent(pos.X+x, pos.Y+y, ch, nil, tcell.StyleDefault)
+			img := ebiten.NewImageFromImage(rectImage)
+			screen.DrawImage(img, options)
 		}
 	}
 }
 
-func (g *Game) DrawEverywhereOnBoard(text string) {
-	style := tcell.StyleDefault.Foreground(tcell.ColorRed)
-
-	runes := []rune(text)
-	for x := 0; x < g.MaxWidth; x++ {
-		for y := 0; y < g.MaxHeight; y++ {
-			g.Screen.SetContent(x, y, runes[x%len(runes)], nil, style)
-		}
-	}
-
-	g.Screen.Show()
-}
-
-func (g *Game) End() {
-	g.DrawEverywhereOnBoard(" SUPER ")
-	time.Sleep(1 * time.Second)
-	g.DrawEverywhereOnBoard("  HOT  ")
-	time.Sleep(1 * time.Second)
-	g.Screen.Clear()
-
-	os.Exit(0)
+func (g *Game) DrawLines(screen *ebiten.Image, pos Position, lines []string) {
+	ebitenutil.DebugPrintAt(screen, strings.Join(lines, "\n"), pos.X, pos.Y)
 }
